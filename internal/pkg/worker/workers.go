@@ -1,13 +1,14 @@
 package worker
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strconv"
 	"sync"
 )
 
-func merge(left []int, right []int) []int {
+func merge(left, right []int) []int {
 	var result []int
 	for len(left) != 0 && len(right) != 0 {
 		if left[0] < right[0] {
@@ -15,7 +16,7 @@ func merge(left []int, right []int) []int {
 			left = left[1:]
 		} else {
 			result = append(result, right[0])
-			left = right[1:]
+			right = right[1:]
 		}
 	}
 	result = append(result, left...)
@@ -24,7 +25,8 @@ func merge(left []int, right []int) []int {
 }
 
 func sort(data []int) []int {
-	if len(data) < 2 {
+	if len(data) == 1 {
+		fmt.Println(data)
 		return data
 	}
 	mid := len(data) / 2
@@ -33,35 +35,27 @@ func sort(data []int) []int {
 	return merge(sort(left), sort(right))
 }
 
-func byteToInt(buff []byte) []int {
-	var res []int
-	var str string
-	var i, j int
-
-	for ; i < len(buff); i++ {
-		for j = i; string(buff[j]) != "\n"; j, i = j+1, i+1 {
-			str = str + string(buff[i])
-		}
-		t, err := strconv.Atoi(str)
-		//TODO need to handle err
-		if err == nil {
-			res = append(res, t)
-		}
-		str = ""
-	}
-	return res
-}
-
-func Run(start, end int64, fr *os.File, fw *os.File, wg *sync.WaitGroup, mrw *sync.RWMutex) {
+func Run(start, end int64, fr, fw *os.File, wg *sync.WaitGroup, mrw *sync.RWMutex) {
 	defer wg.Done()
-	buffer := make([]byte, end-start)
+	var buffer []int
 	mrw.RLock()
 	fr.Seek(start, 0)
-	fr.Read(buffer)
-	mrw.RUnlock()
-	intBuff := byteToInt(buffer)
-	sortedBuffer := sort(intBuff)
+	scanner := bufio.NewScanner(fr)
+	for scanner.Scan() {
+		if start >= end {
+			break
+		}
+		text := scanner.Text()
+		start += int64(len(text))
+		number, err := strconv.Atoi(text)
+		if err != nil {
+			continue
+		}
+		buffer = append(buffer, number)
+	}
+	sortedBuffer := sort(buffer)
 	fmt.Println(sortedBuffer)
+	mrw.RUnlock()
 	//Start := start
 	mrw.Lock()
 	//fw.WriteAt([]byte(sortedBuffer), Start)

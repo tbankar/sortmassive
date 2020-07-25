@@ -1,7 +1,6 @@
 package dispatcher
 
 import (
-	"io/ioutil"
 	"log"
 	"os"
 	"sortmassive/internal/pkg/env"
@@ -26,6 +25,17 @@ func Error(err error) {
 
 }
 
+func calculateRemainingBytes(fp *os.File, chunk int64) int64 {
+	var bytes int64
+	chr := make([]byte, 1)
+	fp.Seek(chunk, 0)
+	for string(chr[0]) != "\n" {
+		fp.ReadAt(chr, bytes)
+		bytes++
+	}
+	return bytes
+}
+
 func Dispatch(memory uint64) {
 	var chunkSize, start int64
 	var workers int
@@ -36,27 +46,34 @@ func Dispatch(memory uint64) {
 	Error(err)
 	fileSize := fi.Size()
 
-	if fileSize < int64(1024*1024) {
+	fr, err := os.Open(filename)
+	defer fr.Close()
+	Error(err)
+
+	fw, err := os.Create(filename + "_output.txt")
+	defer fw.Close()
+	Error(err)
+
+	/*if fileSize <= int64(1*1024*1024) {
+		//If file is less than 1MB no need to cut file into chunks
 		workers = 1
 		chunkSize = fileSize
-		//TODO Handle error here
-		contents, _ := ioutil.ReadFile(filename)
-		str := string(contents)
-	} else if fileSize < int64(memory) {
+	} else*/if fileSize < int64(memory) {
+		// As of now chunk size will be 20% of filesize
 		chunkSize = (20 * fileSize) / 100
 		workers = int(fileSize / chunkSize)
 	}
 
 	wg.Add(workers)
-	fr, err := os.Open(filename)
-	defer fr.Close()
-	Error(err)
-	fw, err := os.Create("/tmp/output.txt")
-	defer fw.Close()
-	Error(err)
+	var end int64
 	for ; workers > 0; workers-- {
-		go worker.Run(start, start+chunkSize, fr, fw, &wg, &mrw)
-		start = start + chunkSize
+		end = start + chunkSize
+		addBytes := calculateRemainingBytes(fr, end)
+		end += addBytes
+
+		go worker.Run(start, end, fr, fw, &wg, &mrw)
+
+		start += end
 	}
 	wg.Wait()
 }
