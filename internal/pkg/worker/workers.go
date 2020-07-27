@@ -37,16 +37,26 @@ func sort(data []int) []int {
 
 func Run(start, end int64, fr, fw *os.File, wg *sync.WaitGroup, mrw *sync.RWMutex) {
 	defer wg.Done()
+	fCounter := start
 	var buffer []int
+	//buffer := make([], end-start)
 	mrw.RLock()
 	fr.Seek(start, 0)
+
+	/* Alternate way
+	buff := make([]byte, end)
+	fr.Read(buff)
+	fmt.Printf("%q", string(buff))
+	buf1 := strings.Split(string(buff), `\n`)
+	fmt.Println(buf1)*/
+
 	scanner := bufio.NewScanner(fr)
 	for scanner.Scan() {
-		if start >= end {
+		if fCounter >= end {
 			break
 		}
 		text := scanner.Text()
-		start += int64(len(text))
+		fCounter = fCounter + int64(len(text)) + 1
 		number, err := strconv.Atoi(text)
 		if err != nil {
 			continue
@@ -54,10 +64,12 @@ func Run(start, end int64, fr, fw *os.File, wg *sync.WaitGroup, mrw *sync.RWMute
 		buffer = append(buffer, number)
 	}
 	sortedBuffer := sort(buffer)
-	fmt.Println(sortedBuffer)
 	mrw.RUnlock()
-	//Start := start
 	mrw.Lock()
-	//fw.WriteAt([]byte(sortedBuffer), Start)
+	fw.Seek(start, 0)
+	for _, num := range sortedBuffer {
+		fw.WriteString(strconv.Itoa(num))
+		fw.WriteString("\n")
+	}
 	mrw.Unlock()
 }

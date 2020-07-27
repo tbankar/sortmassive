@@ -1,22 +1,26 @@
 package dispatcher
 
 import (
+	"bufio"
+	"fmt"
+	"io"
 	"log"
 	"os"
 	"sortmassive/internal/pkg/env"
 	"sortmassive/internal/pkg/worker"
+	"strconv"
 	"sync"
 )
 
-type dispatcher struct {
-	start int
-	end   int
-	done  chan int
-	err   chan error
+type MergeData struct {
+	StartByte int64
+	EndByte   int64
+	Number    int64
 }
 
 var wg sync.WaitGroup
 var mrw sync.RWMutex
+var startBytes []int64
 
 func Error(err error) {
 	if err != nil {
@@ -25,19 +29,47 @@ func Error(err error) {
 
 }
 
-func calculateRemainingBytes(fp *os.File, chunk int64) int64 {
-	var bytes int64
+func calculateRemainingBytes(fp *os.File, chunkSize int64) int64 {
 	chr := make([]byte, 1)
-	fp.Seek(chunk, 0)
 	for string(chr[0]) != "\n" {
-		fp.ReadAt(chr, bytes)
-		bytes++
+		_, err := fp.ReadAt(chr, chunkSize)
+		if err == io.EOF {
+			chunkSize--
+			for {
+				fp.ReadAt(chr, chunkSize)
+				if string(chr[0]) == "\n" {
+					return chunkSize
+				}
+				chunkSize--
+			}
+		}
+		chunkSize++
 	}
-	return bytes
+	return chunkSize
+}
+
+func populateStructArray(arrBytes []int64, fp *os.File) []MergeData {
+	var res MergeData
+	var result []MergeData
+	scanner := bufio.NewScanner(fp)
+	for i := 0; i < len(arrBytes); i = i + 2 {
+		res.StartByte = arrBytes[i]
+		res.EndByte = arrBytes[i+1]
+		fp.Seek(res.StartByte, 0)
+		scanner.Scan()
+		str := string(scanner.Text())
+		number, err := strconv.Atoi(str)
+		if err != nil {
+			//TODO add error
+		}
+		res.Number = int64(number)
+		result = append(result, res)
+	}
+	return result
 }
 
 func Dispatch(memory uint64) {
-	var chunkSize, start int64
+	var chunkSize, startByte int64
 	var workers int
 
 	config := env.GetEnvVars()
@@ -50,7 +82,7 @@ func Dispatch(memory uint64) {
 	defer fr.Close()
 	Error(err)
 
-	fw, err := os.Create(filename + "_output.txt")
+	fw, err := os.OpenFile(filename+"_output.txt", os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0644)
 	defer fw.Close()
 	Error(err)
 
@@ -65,15 +97,37 @@ func Dispatch(memory uint64) {
 	}
 
 	wg.Add(workers)
-	var end int64
+	var endByte int64
+	var lastChunk bool
 	for ; workers > 0; workers-- {
-		end = start + chunkSize
-		addBytes := calculateRemainingBytes(fr, end)
-		end += addBytes
+		endByte = startByte + chunkSize
+		addBytes := calculateRemainingBytes(fr, endByte)
+		if endByte > addBytes {
+			lastChunk = true
+		}
+		endByte = addBytes
 
-		go worker.Run(start, end, fr, fw, &wg, &mrw)
+		worker.Run(startByte, endByte, fr, fw, &wg, &mrw)
+		if lastChunk {
+			return
+		}
 
-		start += end
+		startByte = endByte
+		startBytes = append(startBytes, startByte, endByte)
 	}
 	wg.Wait()
+
+	arrMerge := populateStructArray(startBytes, fr)
+	var num int
+	for len(arrMerge) != 0 {
+		len1 := len(arrMerge)
+		for i := 0; i < len1; i++ {
+			if arrMerge[i].Number < arrMerge[i+1].Number && i+1 < len1 {
+				num = i
+			}
+		}
+		fmt.Println(num)
+
+		//arrMerge[num].Number =
+	}
 }
