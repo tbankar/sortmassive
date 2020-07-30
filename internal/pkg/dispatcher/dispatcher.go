@@ -1,7 +1,6 @@
 package dispatcher
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"log"
@@ -16,6 +15,7 @@ type MergeData struct {
 	StartByte int64
 	EndByte   int64
 	Number    int64
+	Len       int64
 }
 
 var wg sync.WaitGroup
@@ -48,24 +48,68 @@ func calculateRemainingBytes(fp *os.File, chunkSize int64) int64 {
 	return chunkSize
 }
 
-func populateStructArray(arrBytes []int64, fp *os.File) []MergeData {
+func readChars(fp *os.File, offset int64) ([]byte, int64) {
+	var bytes []byte
+	chr := make([]byte, 1)
+	for {
+		fp.ReadAt(chr, offset)
+		if chr[0] == '\n' {
+			break
+		}
+		bytes = append(bytes, chr[0])
+		offset++
+	}
+	return bytes, int64(len(bytes)) + 1
+}
+
+func KWayMergeSort(arrBytes []int64, filename string) []int64 {
 	var res MergeData
-	var result []MergeData
-	scanner := bufio.NewScanner(fp)
-	for i := 0; i < len(arrBytes); i = i + 2 {
+	merged := []MergeData{}
+	var sortedResult []int64
+
+	fp, _ := os.Open(filename + "_output.txt")
+	defer fp.Close()
+	for i := 0; i < len(arrBytes); i += 2 {
 		res.StartByte = arrBytes[i]
 		res.EndByte = arrBytes[i+1]
-		fp.Seek(res.StartByte, 0)
-		scanner.Scan()
-		str := string(scanner.Text())
-		number, err := strconv.Atoi(str)
+		bytes, len := readChars(fp, arrBytes[i])
+		res.Len = len
+		bufStr := string(bytes)
+		number, err := strconv.Atoi(bufStr)
 		if err != nil {
 			//TODO add error
 		}
 		res.Number = int64(number)
-		result = append(result, res)
+		merged = append(merged, res)
 	}
-	return result
+
+	var idx int
+	len1 := len(merged) - 1
+	for len1 >= 0 {
+		for i := 0; i < len1; i++ {
+			if merged[i].Number < merged[i+1].Number {
+				idx = i
+			} else {
+				idx = i + 1
+			}
+		}
+		sortedResult = append(sortedResult, merged[idx].Number)
+		if merged[idx].StartByte+merged[idx].Len > merged[idx].EndByte {
+			merged = append(merged[:idx], merged[idx+1:]...)
+			len1--
+		} else {
+			merged[idx].StartByte += int64(merged[idx].Len)
+			bytes, len := readChars(fp, merged[idx].StartByte)
+			res.Len = len
+			bufStr := string(bytes)
+			number, err := strconv.Atoi(bufStr)
+			if err != nil {
+				//TODO add error
+			}
+			merged[idx].Number = int64(number)
+		}
+	}
+	return sortedResult
 }
 
 func Dispatch(memory uint64) {
@@ -108,26 +152,17 @@ func Dispatch(memory uint64) {
 		endByte = addBytes
 
 		worker.Run(startByte, endByte, fr, fw, &wg, &mrw)
-		if lastChunk {
-			return
-		}
 
+		startBytes = append(startBytes, startByte)
 		startByte = endByte
-		startBytes = append(startBytes, startByte, endByte)
-	}
-	wg.Wait()
-
-	arrMerge := populateStructArray(startBytes, fr)
-	var num int
-	for len(arrMerge) != 0 {
-		len1 := len(arrMerge)
-		for i := 0; i < len1; i++ {
-			if arrMerge[i].Number < arrMerge[i+1].Number && i+1 < len1 {
-				num = i
-			}
+		startBytes = append(startBytes, endByte)
+		if lastChunk {
+			break
 		}
-		fmt.Println(num)
-
-		//arrMerge[num].Number =
 	}
+	//wg.Wait()
+	fw.Close()
+
+	arrMerge := KWayMergeSort(startBytes, filename)
+	fmt.Println(arrMerge)
 }
