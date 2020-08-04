@@ -52,8 +52,8 @@ func readChars(fp *os.File, offset int64) ([]byte, int64) {
 	var bytes []byte
 	chr := make([]byte, 1)
 	for {
-		fp.ReadAt(chr, offset)
-		if chr[0] == '\n' {
+		_, eof := fp.ReadAt(chr, offset)
+		if chr[0] == '\n' || eof == io.EOF {
 			break
 		}
 		bytes = append(bytes, chr[0])
@@ -62,13 +62,14 @@ func readChars(fp *os.File, offset int64) ([]byte, int64) {
 	return bytes, int64(len(bytes)) + 1
 }
 
-func KWayMergeSort(arrBytes []int64, filename string) []int64 {
+func KWayMergeSort(arrBytes []int64, filename string) {
 	var res MergeData
 	merged := []MergeData{}
-	var sortedResult []int64
 
 	fp, _ := os.Open(filename + "_output.txt")
 	defer fp.Close()
+	fw1, _ := os.OpenFile(filename+"_output1.txt", os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0644)
+	defer fw1.Close()
 	for i := 0; i < len(arrBytes); i += 2 {
 		res.StartByte = arrBytes[i]
 		res.EndByte = arrBytes[i+1]
@@ -83,33 +84,43 @@ func KWayMergeSort(arrBytes []int64, filename string) []int64 {
 		merged = append(merged, res)
 	}
 
-	var idx int
 	len1 := len(merged) - 1
-	for len1 >= 0 {
+	for len1 > 0 {
+		idx := 0
 		for i := 0; i < len1; i++ {
-			if merged[i].Number < merged[i+1].Number {
-				idx = i
-			} else {
+			if merged[idx].Number > merged[i+1].Number {
 				idx = i + 1
 			}
 		}
-		sortedResult = append(sortedResult, merged[idx].Number)
-		if merged[idx].StartByte+merged[idx].Len > merged[idx].EndByte {
+		fw1.WriteString(fmt.Sprintf("%d\n", merged[idx].Number))
+		merged[idx].StartByte += merged[idx].Len
+		bytes, bytesRead := readChars(fp, merged[idx].StartByte)
+		if bytesRead == 1 || merged[idx].StartByte >= merged[idx].EndByte {
 			merged = append(merged[:idx], merged[idx+1:]...)
 			len1--
 		} else {
-			merged[idx].StartByte += int64(merged[idx].Len)
-			bytes, len := readChars(fp, merged[idx].StartByte)
-			res.Len = len
 			bufStr := string(bytes)
 			number, err := strconv.Atoi(bufStr)
 			if err != nil {
 				//TODO add error
 			}
 			merged[idx].Number = int64(number)
+			merged[idx].Len = bytesRead
 		}
 	}
-	return sortedResult
+
+	// Copy remaining Bytes
+	for merged[0].StartByte < merged[0].EndByte {
+		bytes, len := readChars(fp, merged[0].StartByte)
+		if len == 0 {
+			break
+		}
+		bufStr, _ := strconv.Atoi(string(bytes))
+		merged[0].Number = int64(bufStr)
+		merged[0].Len = len
+		fw1.WriteString(fmt.Sprintf("%d\n", merged[0].Number))
+		merged[0].StartByte += merged[0].Len
+	}
 }
 
 func Dispatch(memory uint64) {
@@ -126,7 +137,7 @@ func Dispatch(memory uint64) {
 	defer fr.Close()
 	Error(err)
 
-	fw, err := os.OpenFile(filename+"_output.txt", os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0644)
+	fw, err := os.Create(filename + "_output.txt")
 	defer fw.Close()
 	Error(err)
 
@@ -151,7 +162,10 @@ func Dispatch(memory uint64) {
 		}
 		endByte = addBytes
 
-		worker.Run(startByte, endByte, fr, fw, &wg, &mrw)
+		if endByte < startByte {
+			break
+		}
+		go worker.Run(startByte, endByte, fr, fw, &wg, &mrw)
 
 		startBytes = append(startBytes, startByte)
 		startByte = endByte
@@ -160,9 +174,7 @@ func Dispatch(memory uint64) {
 			break
 		}
 	}
-	//wg.Wait()
-	fw.Close()
+	wg.Wait()
 
-	arrMerge := KWayMergeSort(startBytes, filename)
-	fmt.Println(arrMerge)
+	KWayMergeSort(startBytes, filename)
 }
