@@ -1,9 +1,15 @@
 package worker
 
 import (
+	"math"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
+)
+
+const (
+	WCHUNKSZ = 100
 )
 
 func merge(left, right []int64) []int64 {
@@ -49,16 +55,80 @@ func convertToInt64(buffer []byte) []int64 {
 	return arr
 }
 
-func Run(start, end int64, fr, fw *os.File, wg *sync.WaitGroup, mrw *sync.RWMutex) {
+func writeToFile(buff []int64, offset int64, fp *os.File, mu *sync.Mutex) {
+	mu.Lock()
+	defer mu.Unlock()
+	fp.Seek(0, 2)
+	for _, num := range buff {
+		str := strconv.FormatInt(num, 10)
+		//Handle error
+		n, _ := fp.Write([]byte(str + "\n"))
+		if n < 1 {
+			break
+		}
+	}
+}
+
+func Run(chunk []byte, linesPool, stringsPool *sync.Pool, fp *os.File, offset chan<- int64, done chan<- bool) {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	linesPool.Put(chunk)
+
+	str := stringsPool.Get().(string)
+	str = string(chunk)
+	buf := strings.Split(str, "\n")
+	stringsPool.Put(str)
+
+	n := len(buf)
+
+	var workers int
+	if WCHUNKSZ > n {
+		workers = 1
+	} else {
+		workers = n / WCHUNKSZ
+
+		if workers%WCHUNKSZ != 0 {
+			workers++
+		}
+	}
+
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+
+		go func(start, end int) {
+			defer wg.Done()
+			var numBuff []int64
+			var end1 int64
+			for i := start; i < end; i++ {
+				//Handle error here
+				num, err := strconv.ParseInt(buf[i], 10, 64)
+				if err != nil {
+					continue
+				}
+				end1 += int64(len(buf[i])) + 1
+				numBuff = append(numBuff, num)
+			}
+			sortedBuffer := sortData(numBuff)
+			writeToFile(sortedBuffer, int64(start), fp, &mu)
+			offset <- int64(start)
+			offset <- end1
+
+		}(i*WCHUNKSZ, int(math.Min(float64((i+1)*WCHUNKSZ), float64(n))))
+	}
+	wg.Wait()
+	buf = nil
+	done <- true
+}
+
+/*func Run(start, end int64, fr, fw *os.File, wg *sync.WaitGroup, mrw *sync.RWMutex) {
 	defer wg.Done()
-	//var buffer []int64
-	mrw.Lock()
+	mrw.RLock()
 	fr.Seek(start, 0)
 
 	buff := make([]byte, end-start)
 	//Handle error here
 	bytes, _ := fr.Read(buff)
-	mrw.Unlock()
+	mrw.RUnlock()
 	if bytes < 1 {
 		return
 	}
@@ -72,11 +142,11 @@ func Run(start, end int64, fr, fw *os.File, wg *sync.WaitGroup, mrw *sync.RWMute
 		b := []byte(str + "\n")
 		n, err := fw.Write(b)
 		if err != nil {
-			//Validate error
+			//Handle error
 		}
 		if n < 1 {
 			break
 		}
 	}
 	mrw.Unlock()
-}
+}*/

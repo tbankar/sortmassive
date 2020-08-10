@@ -1,10 +1,12 @@
 package dispatcher
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"sort"
 	"sortmassive/internal/pkg/env"
 	"sortmassive/internal/pkg/worker"
 	"strconv"
@@ -19,33 +21,34 @@ type MergeData struct {
 }
 
 var wg sync.WaitGroup
-var mrw sync.RWMutex
-var startBytes []int64
+
+const (
+	CHUNKSIZE = 200
+)
 
 func Error(err error) {
 	if err != nil {
-		log.Fatalf("Cannot open file: %s", err)
+		log.Fatalf("Error on operation: ", err)
 	}
-
 }
 
-func calculateRemainingBytes(fp *os.File, chunkSize int64) int64 {
+func calculateRemainingBytes(fp *os.File, lastByte int64) int64 {
 	chr := make([]byte, 1)
 	for string(chr[0]) != "\n" {
-		_, err := fp.ReadAt(chr, chunkSize)
+		_, err := fp.ReadAt(chr, lastByte)
 		if err == io.EOF {
-			chunkSize--
+			lastByte--
 			for {
-				fp.ReadAt(chr, chunkSize)
+				fp.ReadAt(chr, lastByte)
 				if string(chr[0]) == "\n" {
-					return chunkSize
+					return lastByte
 				}
-				chunkSize--
+				lastByte--
 			}
 		}
-		chunkSize++
+		lastByte++
 	}
-	return chunkSize
+	return lastByte
 }
 
 func readChars(fp *os.File, offset int64) ([]byte, int64) {
@@ -62,14 +65,18 @@ func readChars(fp *os.File, offset int64) ([]byte, int64) {
 	return bytes, int64(len(bytes)) + 1
 }
 
-func KWayMergeSort(arrBytes []int64, filename string) {
+func KWayMerge(arrBytes []int64) {
 	var res MergeData
 	merged := []MergeData{}
 
-	fp, _ := os.Open(filename + "_output.txt")
+	fp, err := os.OpenFile("tmp.txt", os.O_RDONLY, 0444)
+	Error(err)
 	defer fp.Close()
-	fw1, _ := os.OpenFile(filename+"_output1.txt", os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0644)
-	defer fw1.Close()
+
+	fw, err := os.Create("output.txt")
+	Error(err)
+	defer fw.Close()
+
 	for i := 0; i < len(arrBytes); i += 2 {
 		res.StartByte = arrBytes[i]
 		res.EndByte = arrBytes[i+1]
@@ -77,9 +84,7 @@ func KWayMergeSort(arrBytes []int64, filename string) {
 		res.Len = len
 		bufStr := string(bytes)
 		number, err := strconv.Atoi(bufStr)
-		if err != nil {
-			//TODO add error
-		}
+		Error(err)
 		res.Number = int64(number)
 		merged = append(merged, res)
 	}
@@ -92,7 +97,7 @@ func KWayMergeSort(arrBytes []int64, filename string) {
 				idx = i + 1
 			}
 		}
-		fw1.WriteString(fmt.Sprintf("%d\n", merged[idx].Number))
+		fw.WriteString(fmt.Sprintf("%d\n", merged[idx].Number))
 		merged[idx].StartByte += merged[idx].Len
 		bytes, bytesRead := readChars(fp, merged[idx].StartByte)
 		if bytesRead == 1 || merged[idx].StartByte >= merged[idx].EndByte {
@@ -101,9 +106,7 @@ func KWayMergeSort(arrBytes []int64, filename string) {
 		} else {
 			bufStr := string(bytes)
 			number, err := strconv.Atoi(bufStr)
-			if err != nil {
-				//TODO add error
-			}
+			Error(err)
 			merged[idx].Number = int64(number)
 			merged[idx].Len = bytesRead
 		}
@@ -115,66 +118,84 @@ func KWayMergeSort(arrBytes []int64, filename string) {
 		if len == 0 {
 			break
 		}
-		bufStr, _ := strconv.Atoi(string(bytes))
-		merged[0].Number = int64(bufStr)
+		//Handle error here
+		merged[0].Number, _ = strconv.ParseInt(string(bytes), 10, 64)
 		merged[0].Len = len
-		fw1.WriteString(fmt.Sprintf("%d\n", merged[0].Number))
+		fw.WriteString(fmt.Sprintf("%d\n", merged[0].Number))
 		merged[0].StartByte += merged[0].Len
 	}
 }
 
 func Dispatch(memory uint64) {
-	var chunkSize, startByte int64
-	var workers int
 
 	config := env.GetEnvVars()
 	filename := config.File
-	fi, err := os.Stat(filename)
+	/*fi, err := os.Stat(filename)
 	Error(err)
-	fileSize := fi.Size()
+	fileSize := fi.Size()*/
+	var offsets []int64
+	var prevBytes int64
+	offset := make(chan int64)
+	done := make(chan bool)
 
 	fr, err := os.Open(filename)
 	defer fr.Close()
 	Error(err)
 
-	fw, err := os.Create(filename + "_output.txt")
-	defer fw.Close()
-	Error(err)
+	linesPool := sync.Pool{New: func() interface{} {
+		lines := make([]byte, CHUNKSIZE)
+		return lines
+	}}
 
-	/*if fileSize <= int64(1*1024*1024) {
-		//If file is less than 1MB no need to cut file into chunks
-		workers = 1
-		chunkSize = fileSize
-	} else*/if fileSize < int64(memory) {
-		// As of now chunk size will be 20% of filesize
-		chunkSize = (20 * fileSize) / 100
-		workers = int(fileSize / chunkSize)
+	stringsPool := sync.Pool{New: func() interface{} {
+		lines := ""
+		return lines
+	}}
+	fwr, err := os.OpenFile("tmp.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	defer fwr.Close()
+	if err != nil {
+		fmt.Println(err)
 	}
 
-	wg.Add(workers)
-	var endByte int64
-	var lastChunk bool
-	for ; workers > 0; workers-- {
-		endByte = startByte + chunkSize
-		addBytes := calculateRemainingBytes(fr, endByte)
-		if endByte > addBytes {
-			lastChunk = true
-		}
-		endByte = addBytes
+	reader := bufio.NewReader(fr)
+	for {
+		buf := linesPool.Get().([]byte)
+		n, err := reader.Read(buf)
 
-		if endByte < startByte {
-			break
+		buf = buf[:n]
+		if n == 0 {
+			if err == io.EOF {
+				break
+			}
+			Error(err)
 		}
-		go worker.Run(startByte, endByte, fr, fw, &wg, &mrw)
+		nextLine, err := reader.ReadBytes('\n')
+		if err != io.EOF {
+			buf = append(buf, nextLine...)
+		}
 
-		startBytes = append(startBytes, startByte)
-		startByte = endByte
-		startBytes = append(startBytes, endByte)
-		if lastChunk {
-			break
+		wg.Add(1)
+		go func() {
+			worker.Run(buf, &linesPool, &stringsPool, fwr, offset, done)
+			wg.Done()
+		}()
+
+	WaitTillComplete:
+		for {
+			select {
+			case o := <-offset:
+				prevBytes += o
+				offsets = append(offsets, prevBytes)
+			case <-done:
+				break WaitTillComplete
+			}
 		}
+
+		wg.Wait()
 	}
-	wg.Wait()
-
-	KWayMergeSort(startBytes, filename)
+	if len(offsets) > 2 {
+		sort.Slice(offsets, func(i, j int) bool { return offsets[i] < offsets[j] })
+		KWayMerge(offsets)
+	}
+	os.Remove("tmp.txt")
 }
