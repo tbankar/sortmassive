@@ -82,10 +82,8 @@ func KWayMerge(arrBytes []int64) {
 		res.EndByte = arrBytes[i+1]
 		bytes, len := readChars(fp, arrBytes[i])
 		res.Len = len
-		bufStr := string(bytes)
-		number, err := strconv.Atoi(bufStr)
+		res.Number, err = strconv.ParseInt(string(bytes), 10, 64)
 		Error(err)
-		res.Number = int64(number)
 		merged = append(merged, res)
 	}
 
@@ -104,10 +102,8 @@ func KWayMerge(arrBytes []int64) {
 			merged = append(merged[:idx], merged[idx+1:]...)
 			len1--
 		} else {
-			bufStr := string(bytes)
-			number, err := strconv.Atoi(bufStr)
+			merged[idx].Number, err = strconv.ParseInt(string(bytes), 10, 64)
 			Error(err)
-			merged[idx].Number = int64(number)
 			merged[idx].Len = bytesRead
 		}
 	}

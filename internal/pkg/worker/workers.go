@@ -95,25 +95,25 @@ func Run(chunk []byte, linesPool, stringsPool *sync.Pool, fp *os.File, offset ch
 	wg.Add(workers)
 	for i := 0; i < workers; i++ {
 
-		go func(start, end int) {
+		go func(start, end int64) {
 			defer wg.Done()
 			var numBuff []int64
-			var end1 int64
+			var totalBytes int
 			for i := start; i < end; i++ {
 				//Handle error here
 				num, err := strconv.ParseInt(buf[i], 10, 64)
 				if err != nil {
 					continue
 				}
-				end1 += int64(len(buf[i])) + 1
+				totalBytes += len(buf[i]) + 1
 				numBuff = append(numBuff, num)
 			}
 			sortedBuffer := sortData(numBuff)
 			writeToFile(sortedBuffer, int64(start), fp, &mu)
-			offset <- int64(start)
-			offset <- end1
+			offset <- start
+			offset <- int64(totalBytes)
 
-		}(i*WCHUNKSZ, int(math.Min(float64((i+1)*WCHUNKSZ), float64(n))))
+		}(int64(i*WCHUNKSZ), int64(math.Min(float64((i+1)*WCHUNKSZ), float64(n))))
 	}
 	wg.Wait()
 	buf = nil
