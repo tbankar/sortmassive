@@ -65,7 +65,7 @@ func readChars(fp *os.File, offset int64) ([]byte, int64) {
 	return bytes, int64(len(bytes)) + 1
 }
 
-func KWayMerge(arrBytes []int64) {
+func KWayMerge(arrBytes []int64, of string) {
 	var res MergeData
 	merged := []MergeData{}
 
@@ -73,7 +73,7 @@ func KWayMerge(arrBytes []int64) {
 	Error(err)
 	defer fp.Close()
 
-	fw, err := os.Create("output.txt")
+	fw, err := os.Create(of)
 	Error(err)
 	defer fw.Close()
 
@@ -129,7 +129,8 @@ func KWayMerge(arrBytes []int64) {
 func Dispatch(memory uint64) {
 
 	config := env.GetEnvVars()
-	filename := config.File
+	inf := config.InputFile
+	of := config.OutputFile
 	/*fi, err := os.Stat(filename)
 	Error(err)
 	fileSize := fi.Size()*/
@@ -138,7 +139,7 @@ func Dispatch(memory uint64) {
 	offset := make(chan int64)
 	done := make(chan bool)
 
-	fr, err := os.Open(filename)
+	fr, err := os.Open(inf)
 	defer fr.Close()
 	Error(err)
 
@@ -152,7 +153,6 @@ func Dispatch(memory uint64) {
 		return lines
 	}}
 	fwr, err := os.OpenFile("tmp.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	defer fwr.Close()
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -193,9 +193,10 @@ func Dispatch(memory uint64) {
 
 		wg.Wait()
 	}
+	fwr.Close()
 	if len(offsets) > 2 {
 		sort.Slice(offsets, func(i, j int) bool { return offsets[i] < offsets[j] })
-		KWayMerge(offsets)
+		KWayMerge(offsets, of)
 	}
 	os.Remove("tmp.txt")
 }

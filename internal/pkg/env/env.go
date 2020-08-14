@@ -7,7 +7,8 @@ import (
 )
 
 type Config struct {
-	File string
+	InputFile  string `json:"inputfile`
+	OutputFile string `json:"outputfile`
 }
 
 func GetEnvVars() Config {
@@ -19,11 +20,16 @@ func GetEnvVars() Config {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			viper.AutomaticEnv()
 		}
-		val, ok := viper.Get("file").(string)
+		val, ok := viper.Get("inputfile").(string)
 		if !ok {
 			log.Fatalf("Error while reading config file:%s", err)
 		}
-		config.File = val
+		config.InputFile = val
+		val, ok = viper.Get("outputfile").(string)
+		if !ok {
+			log.Fatalf("Error while reading config file:%s", err)
+		}
+		config.OutputFile = val
 	} else {
 		viper.Unmarshal(&config)
 	}

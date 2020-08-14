@@ -1,1 +1,2 @@
-file: "input.txt"
+inputfile: "input.txt"
+outputfile: "output.txt"
