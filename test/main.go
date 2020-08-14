@@ -13,7 +13,7 @@ func main() {
         // Using Int() function
         fp, _ := os.Create("input.txt")
         defer fp.Close()
-        for i := 0; i < 500000; i++ {
+        for i := 0; i < 1000000; i++ {
                 fp.WriteString(fmt.Sprintf("%d\n", rand.Int()))
         }
 

@@ -77,7 +77,9 @@ func KWayMerge(arrBytes []int64) {
 	Error(err)
 	defer fw.Close()
 
-	for i := 0; i < len(arrBytes); i += 2 {
+	chunkArrSize := len(arrBytes)
+
+	for i := 0; i < chunkArrSize; i += 2 {
 		res.StartByte = arrBytes[i]
 		res.EndByte = arrBytes[i+1]
 		bytes, len := readChars(fp, arrBytes[i])
@@ -109,16 +111,18 @@ func KWayMerge(arrBytes []int64) {
 	}
 
 	// Copy remaining Bytes
-	for merged[0].StartByte < merged[0].EndByte {
-		bytes, len := readChars(fp, merged[0].StartByte)
+	lastChunkStartidx := merged[0].StartByte
+	lastChunkEndidx := merged[0].EndByte
+
+	for lastChunkStartidx < lastChunkEndidx {
+		bytes, len := readChars(fp, lastChunkStartidx)
 		if len == 0 {
 			break
 		}
 		//Handle error here
-		merged[0].Number, _ = strconv.ParseInt(string(bytes), 10, 64)
-		merged[0].Len = len
-		fw.WriteString(fmt.Sprintf("%d\n", merged[0].Number))
-		merged[0].StartByte += merged[0].Len
+		num1, _ := strconv.ParseInt(string(bytes), 10, 64)
+		fw.WriteString(fmt.Sprintf("%d\n", num1))
+		lastChunkStartidx += len
 	}
 }
 
