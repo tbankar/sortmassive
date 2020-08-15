@@ -51,12 +51,12 @@ func calculateRemainingBytes(fp *os.File, lastByte int64) int64 {
 	return lastByte
 }
 
-func readChars(fp *os.File, offset int64) ([]byte, int64) {
+func readChars(fp *os.File, offset int64, ls byte) ([]byte, int64) {
 	var bytes []byte
 	chr := make([]byte, 1)
 	for {
 		_, eof := fp.ReadAt(chr, offset)
-		if chr[0] == '\n' || eof == io.EOF {
+		if chr[0] == ls || eof == io.EOF {
 			break
 		}
 		bytes = append(bytes, chr[0])
@@ -65,7 +65,7 @@ func readChars(fp *os.File, offset int64) ([]byte, int64) {
 	return bytes, int64(len(bytes)) + 1
 }
 
-func KWayMerge(arrBytes []int64, of string) {
+func KWayMerge(arrBytes []int64, of string, ls byte) {
 	var res MergeData
 	merged := []MergeData{}
 
@@ -82,7 +82,7 @@ func KWayMerge(arrBytes []int64, of string) {
 	for i := 0; i < chunkArrSize; i += 2 {
 		res.StartByte = arrBytes[i]
 		res.EndByte = arrBytes[i+1]
-		bytes, len := readChars(fp, arrBytes[i])
+		bytes, len := readChars(fp, arrBytes[i], ls)
 		res.Len = len
 		res.Number, err = strconv.ParseInt(string(bytes), 10, 64)
 		Error(err)
@@ -99,7 +99,7 @@ func KWayMerge(arrBytes []int64, of string) {
 		}
 		fw.WriteString(fmt.Sprintf("%d\n", merged[idx].Number))
 		merged[idx].StartByte += merged[idx].Len
-		bytes, bytesRead := readChars(fp, merged[idx].StartByte)
+		bytes, bytesRead := readChars(fp, merged[idx].StartByte, ls)
 		if bytesRead == 1 || merged[idx].StartByte >= merged[idx].EndByte {
 			merged = append(merged[:idx], merged[idx+1:]...)
 			len1--
@@ -115,7 +115,7 @@ func KWayMerge(arrBytes []int64, of string) {
 	lastChunkEndidx := merged[0].EndByte
 
 	for lastChunkStartidx < lastChunkEndidx {
-		bytes, len := readChars(fp, lastChunkStartidx)
+		bytes, len := readChars(fp, lastChunkStartidx, ls)
 		if len == 0 {
 			break
 		}
@@ -131,6 +131,7 @@ func Dispatch(memory uint64) {
 	config := env.GetEnvVars()
 	inf := config.InputFile
 	of := config.OutputFile
+	ls := []byte(config.LineSeparator)[0]
 	/*fi, err := os.Stat(filename)
 	Error(err)
 	fileSize := fi.Size()*/
@@ -169,7 +170,7 @@ func Dispatch(memory uint64) {
 			}
 			Error(err)
 		}
-		nextLine, err := reader.ReadBytes('\n')
+		nextLine, err := reader.ReadBytes(ls)
 		if err != io.EOF {
 			buf = append(buf, nextLine...)
 		}
@@ -196,7 +197,7 @@ func Dispatch(memory uint64) {
 	fwr.Close()
 	if len(offsets) > 2 {
 		sort.Slice(offsets, func(i, j int) bool { return offsets[i] < offsets[j] })
-		KWayMerge(offsets, of)
+		KWayMerge(offsets, of, ls)
 	}
 	os.Remove("tmp.txt")
 }

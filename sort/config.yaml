@@ -1,2 +1,3 @@
 inputfile: "input.txt"
 outputfile: "output.txt"
+lineseparator: "\n"

@@ -7,8 +7,9 @@ import (
 )
 
 type Config struct {
-	InputFile  string `json:"inputfile`
-	OutputFile string `json:"outputfile`
+	InputFile     string `json:"inputfile"`
+	OutputFile    string `json:"outputfile"`
+	LineSeparator string `json:"lineseparator"`
 }
 
 func GetEnvVars() Config {
@@ -30,6 +31,11 @@ func GetEnvVars() Config {
 			log.Fatalf("Error while reading config file:%s", err)
 		}
 		config.OutputFile = val
+		ls, ok := viper.Get("lineseparator").(string)
+		if !ok {
+			log.Fatalf("Error while reading config file:%s", err)
+		}
+		config.LineSeparator = ls
 	} else {
 		viper.Unmarshal(&config)
 	}
